@@ -1,5 +1,6 @@
 import requests
-import os
+import argparse
+from pathlib import Path
 import para
 from requests.auth import HTTPBasicAuth
 import re
@@ -8,17 +9,28 @@ from openpyxl import load_workbook
 from openpyxl.styles import Side, Border
 import time
 
-def get_obsdata(url,account,repolist,project):
+def load_local_custom_pkglist(file_path):
+    with open(file_path, 'r') as file:
+        pkgs = file.readlines()
+        # Strip newline characters and any leading/trailing whitespace
+        pkgs_list = [pkg.strip() for pkg in pkgs]
+        print (pkgs_list)
+        return pkgs_list
+
+def fetch_remote_project_pkglist(url,account,project):
     pkgs_url = '{}/source/{}'.format(url,project)
     pkgs_resp = requests.get(pkgs_url,auth=HTTPBasicAuth(account['user'],account['password']))
     pkgs_data = pkgs_resp.text
-    pkgslist = re.findall('".*"', pkgs_data)
-    del pkgslist[0]
-    pkgslist = [x.replace('"','') for x in pkgslist]
-    print ('pkgs length', len(pkgslist))
+    pkgs_list = re.findall('".*"', pkgs_data)
+    del pkgs_list[0]
+    pkgs_list = [x.replace('"','') for x in pkgs_list]
+    return pkgs_list
+
+def get_pkg_status(pkgs_list,url,account,repolist,project):
+    print ('pkgs length', len(pkgs_list))
     pkginfo_list = []
-    for pkg in pkgslist:
-        print ('obs package', pkg, pkgslist.index(pkg)+1)
+    for pkg in pkgs_list:
+        print ('obs package', pkg, pkgs_list.index(pkg)+1)
         service_url = '{}/source/{}/{}/_service'.format(url,project,pkg)
         service_resp = requests.get(service_url,auth=HTTPBasicAuth(account['user'],account['password']))
         service_data = service_resp.text
@@ -83,7 +95,17 @@ if __name__=="__main__":
     obs_url = para.obs_url
     repolist = para.repolist
     obs_project = para.obs_project
-    report_data = get_obsdata(obs_url, obs_account, repolist,obs_project)
+    parser = argparse.ArgumentParser(description='Process some parameters.')
+    parser.add_argument('file_path', nargs='?', type=Path, default=None, help='Input file to process')
+    args = parser.parse_args()
+    if args.file_path:
+        with args.file_path as p:
+            print("loading package list:", p)
+            list = load_local_custom_pkglist(p)
+    else:
+        print("No local package list provided, fetching packages list from remote prject")
+        list = fetch_remote_project_pkglist(obs_url, obs_account, repolist, obs_project)
+    report_data = get_pkg_status(list, obs_url, obs_account, repolist, obs_project)
     excelheader = para.excelheader
     excelfile = para.excelfile
     create_excelfile(report_data, excelheader, excelfile)   
